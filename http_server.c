@@ -13,27 +13,59 @@
 #include <netdb.h>
 #include <string.h>
 
-#define PORT 6969
+#define PORT "6969" /* port users will connect to */
+#define BACKLOG 10 /* pending connections queue will hold */
 
-int main()
+int main(void)
 {
-    struct addrinfo hints, *res;
-    int sockfd;
+    struct addrinfo hints, *servinfo, *p;
+    int sockfd, rv;
+    int yes = 1;
 
-    // load up address structs with getaddrinfo():
-    memset(&hints, 0, sizeof hints); // fill in block of memory with addresses
-    hints.ai_family = AF_UNSPEC; // IPv4 or IPv6
-    hints.ai_socktype = SOCK_STREAM;
-    hints.ai_flags = AI_PASSIVE;
+    /* load up address structs with getaddrinfo(): */
+    memset(&hints, 0, sizeof hints); /* fill in block of memory with addresses */
+    hints.ai_family = AF_UNSPEC; /* AF_UNSPEC = 0; will accept any address family (IPv4 or IPv6) */
+    hints.ai_socktype = SOCK_STREAM; /* SOCK_STREAM = 1, reliable stream socket, tcp */
+    hints.ai_flags = AI_PASSIVE; /* assign address of my local host to socket structures */
 
-    getaddrinfo(NULL, PORT, &hints, &res);
+    /* if getaddrinfo returns non-zero print error w/ cause */
+    if ((rv = getaddrinfo(NULL, PORT, &hints, &servinfo)) != 0) {
+        fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
+        return 1;
+    }
 
-    // make a socket
-    sockfd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+    /* loop through all socket results and bind first available */
+    for (p = servinfo; p != NULL; p = p->ai_next) {
+        /* make socket, if -1 that means an error has occurred */
+        if ((sockfd = socket(p->ai_family, p->ai_socktype,
+                p->ai_protocol)) == -1) {
+            perror("server: socket");
+            continue;
+        }
 
-    bind(sockfd, res->ai_addr, res->ai_addrlen);
+        /* setting socket to SO_REUSEADDR, allows for reuse of local address unless error */
+        if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &yes,
+                sizeof(int)) == -1) {
+            perror("setcokopt");
+            exit(1);
+        }
 
-    // TODO: Listen on the address
+        /* assign local socket, unless error then close socket */
+        if (bind(sockfd, p->ai_addr, p->ai_addrlen) == -1) {
+            close(sockfd);
+            perror("server: bind");
+            continue;
+        }
+
+        break;
+    }
+
+    /* graciously free up allocated space */
+    freeaddrinfo(servinfo);
+
+    // listen on address
+    // listen(sockfd, BACKLOG);
+
     // TODO: Block on Accept until a connection is made
     // TODO: Read on the connected socket
     // TODO: Figure out how to respond
