@@ -12,14 +12,20 @@
 #include <sys/socket.h>
 #include <netdb.h>
 #include <string.h>
+#include <signal.h>
+#include <errno.h>
+#include <sys/wait.h>
 
 #define PORT "6969" /* port users will connect to */
 #define BACKLOG 10 /* pending connections queue will hold */
 
+void sigchld_handler(int s);
+
 int main(void)
 {
     struct addrinfo hints, *servinfo, *p;
-    int sockfd, rv;
+    struct sigaction sa; /* specifying action associated with specific signal */
+    int sockfd, rv, new_fd;
     int yes = 1;
 
     /* load up address structs with getaddrinfo(): */
@@ -63,10 +69,27 @@ int main(void)
     /* graciously free up allocated space */
     freeaddrinfo(servinfo);
 
-    // listen on address
-    // listen(sockfd, BACKLOG);
+    /* if port is NULL, there was a failure to bind so error */
+    if (p == NULL) {
+        fprintf(stderr, "server: failed to bind\n");
+        exit(1);
+    }
 
-    // TODO: Block on Accept until a connection is made
+    if (listen(sockfd, BACKLOG) == -1) {
+        perror("listen");
+        exit(1);
+    }
+
+    sa.sa_handler = sigchld_handler; /* reap all dead processes to prevent memory leaks*/
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = SA_RESTART;
+    if (sigaction(SIGCHLD, &sa, NULL) == -1) {
+        perror("sigaction");
+        exit(1);
+    }
+
+    printf("\nserver: waiting for connections...\n");
+    
     // TODO: Read on the connected socket
     // TODO: Figure out how to respond
     // TODO: Write back on the connected socket
@@ -76,3 +99,12 @@ int main(void)
     return 0;
 }
 
+void sigchld_handler(int s)
+{
+    /* waitpid() might overwrite errno, so we save and restore it: */
+    int saved_errno = errno;
+
+    while (waitpid(-1, NULL, WNOHANG) > 0);
+
+    errno = saved_errno;
+}
